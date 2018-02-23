@@ -6,7 +6,7 @@ namespace dinject {
 namespace detail  {
 
 const char* GetCppTypeName( CppType type ) {
-#define __(A,B,C) case A: return C;
+#define __(A,B,C,...) case A: return C;
   switch(type) {
     DINJECT_CPP_TYPE(__)
     default: assert(false); return NULL;
@@ -21,7 +21,7 @@ Attribute* KlassBuilder::FindAttribute( const char* name ) {
   while(!queue.empty()) {
     auto &cls = queue.front();
     auto attr = cls->FindAttribute(name);
-    if(!attr) return attr;
+    if(attr) return attr;
     queue.pop();
 
     auto p = cls->parents();
@@ -40,12 +40,11 @@ Attribute* Klass::FindAttribute( const char* name ) const {
   return NULL;
 }
 
-} // namespace detail
-
 namespace {
 
 class MetaManager {
  public:
+
   static MetaManager& GetInstance() {
     static MetaManager kInstance;
     return kInstance;
@@ -53,8 +52,7 @@ class MetaManager {
 
   Klass* GetKlass( const char* name ) const {
     auto itr = sets_.find(name);
-    return itr == sets_.end() ? std::shared_ptr<Klass>() :
-                                itr->second.get();
+    return (itr == sets_.end()) ? NULL : itr->second.get();
   }
 
   void AddKlass( const char* name , const std::shared_ptr<Klass>& kls ) {
@@ -83,5 +81,5 @@ void AddKlass( const char* name , const std::shared_ptr<Klass>& kls ) {
   MetaManager::GetInstance().AddKlass(name,kls);
 }
 
-
+} // namespace detail
 } // namespace dinject
