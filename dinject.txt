@@ -1,0 +1,5 @@
+DINJECT is a simple dependency injection library for C++
+
+1. Scriptable/Jsonable dependency injection
+2. You pay what you see but register which field to be dependency injected
+3. Support inheritance
