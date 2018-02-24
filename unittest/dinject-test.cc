@@ -7,17 +7,20 @@ class MyObject {
  public:
   MyObject():a(),b(),c() {}
 
+  std::int32_t a;
+  std::int64_t b;
+  bool c;
+  double X;
+  std::string str;
+
+ private:
   void SetA( std::int32_t v )         { a = v; }
   void SetB( std::int64_t v )         { b = v; }
   void SetC( bool v )                 { c = v; }
   void SetX( double v )               { X = v; }
   void SetStr( const std::string& s ) { str = s; }
 
-  std::int32_t a;
-  std::int64_t b;
-  bool c;
-  double X;
-  std::string str;
+  DINJECT_FRIEND_REGISTRY(MyObject);
 };
 
 DINJECT_CLASS(MyObject) {

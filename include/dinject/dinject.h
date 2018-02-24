@@ -29,6 +29,7 @@ template< typename T >
 // Exported macro interfaces
 #include "macro-interface.h"
 #define DINJECT_CLASS _DINJECT_CLASS_V0
+#define DINJECT_FRIEND_REGISTRY _DINJECT_FRIEND_REGISTRY_V0
 
 typedef std::variant<
 #define __(A) A,
