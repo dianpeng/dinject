@@ -252,6 +252,7 @@ struct StringImpl : public ObjectAttributeSetter<OBJ> {
 
     try {
       std::string& v = std::get<std::string>(value);
+      (void)v;
     } catch(...) {
       Fatal("object %s's attribute %s expect type %s",
           klass->name(),Base::name(),Base::type_name());
