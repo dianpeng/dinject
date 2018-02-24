@@ -45,14 +45,23 @@ void Build( KlassBuilder* builder , const ConfigObject& config ) {
       auto obj = std::get<std::shared_ptr<ConfigObject>>(val);
       auto attr= builder->klass()->FindAttribute(key.c_str());
 
-      if(attr && attr->dep()) {
-        auto sub = detail::NewKlassObject(attr->dep());
-        if(sub) {
-          // build the object recursively
-          Build(sub.get(),*obj);
-          auto holder = sub->GetAny();
-          detail::Value wrapper(holder);
-          builder->Build(attr,std::move(wrapper));
+      if(attr) {
+        if(attr->type() == kTypeObject) {
+          // object type construction
+          auto sub = detail::NewKlassObject(attr->dep());
+          if(sub) {
+            Build(sub.get(),*obj);
+            auto holder = sub->GetAny();
+            detail::Value wrapper(holder);
+            builder->Build(attr,std::move(wrapper));
+          }
+        } else {
+          // struct type construction
+          assert(attr->type() == kTypeStruct);
+          auto sub = builder->BuildStruct(attr);
+          if(sub) {
+            Build(sub.get(),*obj);
+          }
         }
       }
     }
