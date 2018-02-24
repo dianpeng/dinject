@@ -22,7 +22,7 @@ class ConfigObject;
 
 // Function to allower user to register its own class meta information
 template< typename T >
-::dinject::detail::KlassImpl<T>* Class( const char* name ) {
+::dinject::detail::KlassImpl<T>& Class( const char* name ) {
   return ::dinject::detail::NewKlass<T>(name);
 }
 
@@ -31,12 +31,10 @@ template< typename T >
 #define DINJECT_CLASS _DINJECT_CLASS_V0
 
 typedef std::variant<
-
 #define __(A) A,
 DINJECT_VALUE_PRIMITIVE_TYPE(__)
 #undef __ // __
-
-  std::shared_ptr<ConfigObject>
+    std::shared_ptr<ConfigObject>
   > ConfigValue;
 
 // Represents a compound type or a dictionary, user to recursively
@@ -50,9 +48,6 @@ class ConfigObject {
 
   virtual void Set( const char* , const ConfigValue& ) = 0;
   virtual void Set( const std::string& , const ConfigValue& ) = 0;
-
-  virtual const std::string* GetAttribute( const char* ) const = 0;
-  virtual void SetAttribute( const char* , const std::string& ) = 0;
 
   class Iterator {
    public:
@@ -68,7 +63,7 @@ class ConfigObject {
 
 // Helper to create a simple ConfigObject with a std::map, used for
 // testing or some other case you don't need a json/xml/yaml
-std::unique_ptr<ConfigObject> NewDefaultConfigObject();
+std::shared_ptr<ConfigObject> NewDefaultConfigObject();
 
 // Create an object of type T with certian namw of given input config
 template< typename T > std::unique_ptr<T>
@@ -97,6 +92,9 @@ DO(double,double)
 inline ConfigValue Val( const std::string& val ) { return ConfigValue(val); }
 inline ConfigValue Val( std::string&& val      ) { return ConfigValue(std::move(val)); }
 inline ConfigValue Val( const char* val        ) { return ConfigValue(std::string(val)); }
+inline ConfigValue Val( const std::shared_ptr<ConfigObject>& conf ) {
+  return ConfigValue(conf);
+}
 
 } // namespace dinject
 

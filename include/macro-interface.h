@@ -1,5 +1,5 @@
-#ifndef MACRO_INTERFACE_H_
-#define MACRO_INTERFACE_H_
+#ifndef DINJECT_MACRO_INTERFACE_H_
+#define DINJECT_MACRO_INTERFACE_H_
 
 /**
  * Define a bunch of macros to help dinject to let user
@@ -20,4 +20,4 @@
   ()
 
 
-#endif // MACRO_INTERFACE_H_
+#endif // DINJECT_MACRO_INTERFACE_H_

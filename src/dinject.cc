@@ -108,20 +108,6 @@ class STLConfigObject : public ConfigObject {
     map_[name] = value;
   }
 
-  virtual const std::string* GetAttribute( const char* name ) const {
-    for( auto &e : attr_ ) {
-      if(e.first == name) return &e.second;
-    }
-    return NULL;
-  }
-
-  virtual void SetAttribute( const char* name , const std::string& value ) {
-#ifndef NDEBUG
-    assert(GetAttribute(name) == NULL);
-#endif // NDEBUG
-    attr_.push_back(std::make_pair(std::string(name),value));
-  }
-
   virtual std::unique_ptr<Iterator> NewIterator() const {
     return std::unique_ptr<Iterator>(
         new STLConfigObjectIterator(map_.begin(),map_.end()));
@@ -131,12 +117,11 @@ class STLConfigObject : public ConfigObject {
 
  private:
   STLConfigMap map_;
-  std::vector<std::pair<std::string,std::string>> attr_;
 };
 } // namespace
 
 
-std::unique_ptr<ConfigObject> NewDefaultConfigObject() {
-  return std::make_unique<STLConfigObject>();
+std::shared_ptr<ConfigObject> NewDefaultConfigObject() {
+  return std::make_shared<STLConfigObject>();
 }
 } // namespace dinject

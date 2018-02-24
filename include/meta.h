@@ -1,6 +1,8 @@
 #ifndef DINJECT_META_H_
 #define DINJECT_META_H_
+#include "error.h"
 
+#include <typeinfo>
 #include <cassert>
 #include <cstring>
 #include <memory>
@@ -15,6 +17,7 @@ namespace detail {
 
 class Attribute;
 class Klass;
+class KlassBuilder;
 
 #define DINJECT_PRIMITIVE_TYPE(__)                      \
   __(kTypeBool   ,bool         ,"bool" ,bool)           \
@@ -91,166 +94,6 @@ DINJECT_CPP_TYPE(__)
 
 #undef DO // DO
 
-class Attribute {
- public:
-  Attribute( const char* name  , CppType type , const char* dep ):
-    name_(name),
-    dep_ (dep) ,
-    type_(type)
-  {}
-
-  const char* name() const { return name_; }
-  const char* dep () const { return dep_ ; }
-  CppType     type() const { return type_; }
-
-  virtual ~Attribute() {}
-
- private:
-  const char* name_; // name of attribute
-  const char* dep_ ; // if it is an object, the specific type name
-  CppType type_;     // type of attribute
-};
-
-template< typename OBJ >
-struct ObjectAttribute : public Attribute {
- typedef OBJ ObjectType;
-
- virtual void Set( OBJ* , Value&& ) = 0;
-
- ObjectAttribute( const char* n , CppType type , const char* dep ):
-   Attribute(n,type,dep) {}
-};
-
-template< typename OBJ , typename T >
-struct PrimitiveImpl : public ObjectAttribute<OBJ> {};
-
-#define DO(X)                                                  \
-  template<typename OBJ>                                       \
-  struct PrimitiveImpl<OBJ,X> : public ObjectAttribute<OBJ> {  \
-    typedef void (OBJ::*Func)( X );                            \
-    typedef ObjectAttribute<OBJ> Base;                         \
-    virtual void Set( OBJ* object, Value&& value ) {           \
-      typedef typename MapAttributeTypeToUniversalType<X>::type\
-        FromType;                                              \
-      auto v = std::get<FromType>(value);                      \
-      (object->*func)(static_cast<X>(v));                      \
-    }                                                          \
-    PrimitiveImpl( const char* name , Func f ):                \
-      Base(name,MapCppTypeToEnum<X>::value,NULL),func(f)       \
-    {}                                                         \
-    Func func;                                                 \
-  };
-
-#define __(A,B,...) DO(B)
-DINJECT_PRIMITIVE_TYPE(__)
-#undef __ // __
-
-#undef DO // DO
-
-template<typename OBJ>
-struct StringImpl : public ObjectAttribute<OBJ> {
-  typedef ObjectAttribute<OBJ> Base;
-  typedef void (OBJ::*CRSetter)( const std::string& );
-  typedef void (OBJ::*MVSetter)( std::string&&      );
-
-  virtual void Set( OBJ* object , Value&& value ) {
-    std::string& v = std::get<std::string>(value);
-    if(cr_setter) {
-      (object->*cr_setter)(v);
-    } else {
-      (object->*mv_setter)(std::move(v));
-    }
-  }
-
-  CRSetter cr_setter;
-  MVSetter mv_setter;
-
-  StringImpl( const char* name , CRSetter cr ):
-    Base(name,kTypeString,NULL),
-    cr_setter(cr),
-    mv_setter()
-  {}
-
-  StringImpl( const char* name , MVSetter mv ):
-    Base(name,kTypeString,NULL),
-    cr_setter(),
-    mv_setter(mv)
-  {}
-};
-
-template<typename OBJ,typename T>
-struct ObjectImpl : public ObjectAttribute<OBJ> {
-  static_assert(std::is_pointer<T>::value &&                   // check whether T is a pointer
-                std::is_object<std::remove_pointer<T>>::value, // check whether T is an object
-                "require an object pointer here to be delcared as object type"
-                );
-
-  typedef ObjectAttribute<OBJ> Base;
-  typedef void (OBJ::*Func)( T* );
-
-  virtual void Set( OBJ* object, Value&& value ) {
-    auto holder = std::get<std::any>(value);  // type safe
-    auto raw    = std::any_cast<T*> (holder); // type safe
-    (object->*func)(raw);
-  }
-
-  ObjectImpl( const char* name , const char* dep , Func f ):
-    Base(name,kTypeObject,dep), func(f)
-  {}
-
-  Func func;
-};
-
-// Used to perform reflection for setting each attributes
-class KlassBuilder {
- public:
-  KlassBuilder( const std::shared_ptr<Klass>& c ): klass_ (c) {}
-
-  virtual ~KlassBuilder() {}
-
-  // Build the primitive attribute
-  virtual void Build( const char* , Value&& ) = 0;
-  virtual void Build( Attribute*   , Value&& ) = 0;
-
-  // Find the attribute based on the name
-  Attribute* FindAttribute( const char* );
-
-  // Get the corresponding Klass object
-  const Klass* klass() const { return klass_.get(); }
-
-  // Release the object back to the user
-  template< typename T > std::unique_ptr<T> Get()
-  { return std::unique_ptr<T>(std::any_cast<T*>(Release())); }
-
-  // Get the value as std::any wrapped value , user to recursively build
-  // needed object in a type safe way
-  std::any GetAny() { return Release(); }
-
- protected:
-  // Use std::any for type safe purpose
-  virtual std::any Release() = 0;
-
- private:
-  std::shared_ptr<Klass> klass_;
-};
-
-template< typename T >
-struct KlassBuilderImpl : public KlassBuilder {
-  typedef T ObjectType;
-  KlassBuilderImpl( const std::shared_ptr<Klass>& klass ) :
-    KlassBuilder(klass) , object_( new T() )
-  {}
-
-  virtual void Build( const char* , Value&& value );
-  virtual void Build( Attribute*  , Value&& value );
-
-  virtual std::any Release()
-  { assert(object_); return std::any(object_.release()); }
-
- private:
-  std::unique_ptr<T> object_;
-};
-
 // Object to record injected information for a certain class
 class Klass : public std::enable_shared_from_this<Klass> {
  public:
@@ -281,6 +124,197 @@ class Klass : public std::enable_shared_from_this<Klass> {
   std::vector<std::unique_ptr<Attribute>> attributes_;
 };
 
+// Used to perform reflection for setting each attributes
+class KlassBuilder {
+ public:
+  KlassBuilder( const std::shared_ptr<Klass>& c ): klass_ (c) {}
+
+  virtual ~KlassBuilder() {}
+
+  // Build the primitive attribute
+  virtual void Build( const char* , Value&& ) = 0;
+  virtual void Build( Attribute*   , Value&& ) = 0;
+
+  // Find the attribute based on the name
+  Attribute* FindAttribute( const char* );
+
+  // Get the corresponding Klass object
+  const Klass* klass() const { return klass_.get(); }
+
+  // Release the object back to the user
+  template< typename T > std::unique_ptr<T> Get() { 
+    auto holder = Release();
+    T* ptr;
+    try {
+      ptr = std::any_cast<T*>(holder);
+    } catch(...) {
+      Fatal("You are trying to get object as type %s, but actual registered "
+            "type information is %s",typeid(T).name(),holder.type().name());
+    }
+    return std::unique_ptr<T>(ptr);
+  }
+
+  // Get the value as std::any wrapped value , user to recursively build
+  // needed object in a type safe way
+  std::any GetAny() { return Release(); }
+
+ protected:
+  // Use std::any for type safe purpose
+  virtual std::any Release() = 0;
+
+ private:
+  std::shared_ptr<Klass> klass_;
+};
+
+class Attribute {
+ public:
+  Attribute( const char* name  , CppType type , const char* dep ):
+    name_(name),
+    dep_ (dep) ,
+    type_(type)
+  {}
+
+  const char* name() const { return name_; }
+  const char* dep () const { return dep_ ; }
+  CppType     type() const { return type_; }
+  inline const char* type_name() const;
+
+  virtual ~Attribute() {}
+
+ private:
+  const char* name_; // name of attribute
+  const char* dep_ ; // if it is an object, the specific type name
+  CppType type_;     // type of attribute
+};
+
+template< typename OBJ >
+struct ObjectAttribute : public Attribute {
+ typedef OBJ ObjectType;
+
+ virtual void Set( OBJ* , Value&& , const Klass* ) = 0;
+
+ ObjectAttribute( const char* n , CppType type , const char* dep ):
+   Attribute(n,type,dep) {}
+};
+
+template< typename OBJ , typename T >
+struct PrimitiveImpl : public ObjectAttribute<OBJ> {};
+
+#define DO(X)                                                      \
+  template<typename OBJ>                                           \
+  struct PrimitiveImpl<OBJ,X> : public ObjectAttribute<OBJ> {      \
+    typedef void (OBJ::*Func)( X );                                \
+    typedef ObjectAttribute<OBJ> Base;                             \
+    virtual void Set(OBJ* object,Value&& value,                    \
+        const Klass* klass) {                                      \
+      typedef typename MapAttributeTypeToUniversalType<X>::type    \
+        FromType;                                                  \
+      FromType v;                                                  \
+      try {                                                        \
+        v = std::get<FromType>(value);                             \
+      } catch(...) {                                               \
+        Fatal("object %s's attribute %s expect type %s\n",         \
+            klass->name(),Base::name(),Base::type_name());         \
+      }                                                            \
+      (object->*func)(static_cast<X>(v));                          \
+    }                                                              \
+    PrimitiveImpl( const char* name , Func f ):                    \
+      Base(name,MapCppTypeToEnum<X>::value,NULL),func(f)           \
+    {}                                                             \
+    Func func;                                                     \
+  };
+
+#define __(A,B,...) DO(B)
+DINJECT_PRIMITIVE_TYPE(__)
+#undef __ // __
+
+#undef DO // DO
+
+template<typename OBJ>
+struct StringImpl : public ObjectAttribute<OBJ> {
+  typedef ObjectAttribute<OBJ> Base;
+  typedef void (OBJ::*CRSetter)( const std::string& );
+  typedef void (OBJ::*MVSetter)( std::string&&      );
+
+  virtual void Set( OBJ* object , Value&& value , const Klass* klass ) {
+
+    try {
+      std::string& v = std::get<std::string>(value);
+    } catch(...) {
+      Fatal("object %s's attribute %s expect type %s",
+          klass->name(),Base::name(),Base::type_name());
+    }
+
+    std::string& v = std::get<std::string>(value);
+    if(cr_setter) {
+      (object->*cr_setter)(v);
+    } else {
+      (object->*mv_setter)(std::move(v));
+    }
+  }
+
+  CRSetter cr_setter;
+  MVSetter mv_setter;
+
+  StringImpl( const char* name , CRSetter cr ):
+    Base(name,kTypeString,NULL),
+    cr_setter(cr),
+    mv_setter()
+  {}
+
+  StringImpl( const char* name , MVSetter mv ):
+    Base(name,kTypeString,NULL),
+    cr_setter(),
+    mv_setter(mv)
+  {}
+};
+
+template<typename OBJ,typename T>
+struct ObjectImpl : public ObjectAttribute<OBJ> {
+  static_assert(std::is_object<T>::value,   // check whether T is a pointer
+                "require an object pointer here to be delcared as object type");
+
+  typedef ObjectAttribute<OBJ> Base;
+  typedef void (OBJ::*Func)( T* );
+
+  virtual void Set( OBJ* object, Value&& value , const Klass* klass ) {
+    std::any holder;
+
+    try {
+      holder = std::get<std::any>(value);  // type safe
+    } catch(...) {
+      Fatal("object %s's attribute %s except type %s",
+          klass->name() , Base::name() , Base::type_name() );
+    }
+
+    auto raw = std::any_cast<T*> (holder); // type safe
+    (object->*func)(raw);
+  }
+
+  ObjectImpl( const char* name , const char* dep , Func f ):
+    Base(name,kTypeObject,dep), func(f)
+  {}
+
+  Func func;
+};
+
+template< typename T >
+struct KlassBuilderImpl : public KlassBuilder {
+  typedef T ObjectType;
+  KlassBuilderImpl( const std::shared_ptr<Klass>& klass ) :
+    KlassBuilder(klass) , object_( new T() )
+  {}
+
+  virtual void Build( const char* , Value&& value );
+  virtual void Build( Attribute*  , Value&& value );
+
+  virtual std::any Release()
+  { assert(object_); return std::any(object_.release()); }
+
+ private:
+  std::unique_ptr<T> object_;
+};
+
 template< typename T >
 class KlassImpl : public Klass {
  public:
@@ -289,23 +323,23 @@ class KlassImpl : public Klass {
         new KlassBuilderImpl<T>(shared_from_this()) );
   }
 
-  KlassImpl* Inherit ( const char* );
+  KlassImpl& Inherit ( const char* );
 
   template< typename PTYPE >
-  KlassImpl* AddPrimitive( const char* name , void (T::*setter)(PTYPE) ) {
+  KlassImpl& AddPrimitive( const char* name , void (T::*setter)(PTYPE) ) {
     return AddAttribute( new PrimitiveImpl<T,PTYPE>(name,setter) );
   }
 
-  KlassImpl* AddString ( const char* name , void (T::*setter)( const std::string& ) ) {
+  KlassImpl& AddString ( const char* name , void (T::*setter)( const std::string& ) ) {
     return AddAttribute( new StringImpl<T>(name,setter) );
   }
 
-  KlassImpl* AddString ( const char* name , void (T::*setter)( std::string&& ) ) {
+  KlassImpl& AddString ( const char* name , void (T::*setter)( std::string&& ) ) {
     return AddAttribute( new StringImpl<T>(name,setter) );
   }
 
   template< typename PTYPE >
-  KlassImpl* AddObject   ( const char* name , const char* dep ,
+  KlassImpl& AddObject   ( const char* name , const char* dep ,
                                               void (T::*setter)(PTYPE*) ) {
     return AddAttribute( new ObjectImpl<T,PTYPE>(name,dep,setter) );
   }
@@ -313,7 +347,7 @@ class KlassImpl : public Klass {
   KlassImpl( const char* name ) : Klass(name) {}
 
  private:
-  KlassImpl* AddAttribute( ObjectAttribute<T>* );
+  KlassImpl& AddAttribute( ObjectAttribute<T>* );
 };
 
 
@@ -326,17 +360,24 @@ void   AddKlass( const char* , const std::shared_ptr<Klass>& );
 // Create a KlassBuilder based on the name
 std::unique_ptr<KlassBuilder> NewKlassObject( const char* );
 
+inline const char* Attribute::type_name() const {
+  if(type() != kTypeObject)
+    return GetCppTypeName(type());
+  else
+    return dep();
+}
+
 // New a Klass object
-template< typename T > KlassImpl<T>* NewKlass( const char* name ) {
+template< typename T > KlassImpl<T>& NewKlass( const char* name ) {
   auto impl = std::make_shared<KlassImpl<T>>(name);
   AddKlass(name,std::static_pointer_cast<Klass>(impl));
-  return impl.get();
+  return *impl;
 }
 
 template< typename T >
 void KlassBuilderImpl<T>::Build( Attribute* attr , Value&& value ) {
   auto oattr = static_cast<ObjectAttribute<T>*>(attr);
-  oattr->Set(object_.get(),std::move(value));
+  oattr->Set(object_.get(),std::move(value),klass());
 }
 
 template< typename T >
@@ -348,7 +389,7 @@ void KlassBuilderImpl<T>::Build( const char* name , Value&& value ) {
 }
 
 template< typename T >
-KlassImpl<T>* KlassImpl<T>::Inherit ( const char* name ) {
+KlassImpl<T>& KlassImpl<T>::Inherit ( const char* name ) {
   auto klass = GetKlass(name);
   if(klass) {
 #ifndef NDEBUG
@@ -358,18 +399,18 @@ KlassImpl<T>* KlassImpl<T>::Inherit ( const char* name ) {
 #endif // NDEBUG
     parents_.push_back(klass->shared_from_this());
   }
-  return this;
+  return *this;
 }
 
 template< typename T >
-KlassImpl<T>* KlassImpl<T>::AddAttribute( ObjectAttribute<T>* attribute ) {
+KlassImpl<T>& KlassImpl<T>::AddAttribute( ObjectAttribute<T>* attribute ) {
 #ifndef NDEBUG
   for( auto &e : attributes_ ) {
     assert(strcmp(e->name(),attribute->name()) != 0);
   }
 #endif // NDEBUG
   attributes_.emplace_back(attribute);
-  return this;
+  return *this;
 }
 
 } // namespace detail
