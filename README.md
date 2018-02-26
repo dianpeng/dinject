@@ -51,11 +51,10 @@ example
 
 # Caveats
 
-The libary is in a fail crash mode. It expects the configuration to be correct , otherwise
-it will throw exceptions or simply crash. It is not used for accept unreliable inputs. Also
-it support almost all primitive types , but for object type it requires user to hold a pointer
-on heap. In generaly this is not a super efficient mechanism and it requires lots of heap
-allocation , but it is good for application that requires tons of tweak.
+The library will crash (std::abort) when an error happened , like type mismatch or other
+stuff. It is not designed to handle unreliable input but designed to be used for developing
+desktop application with lots of configuration data.
+
 
 
 I use it mainly for my desktop application development purpose
